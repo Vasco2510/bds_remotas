@@ -1,0 +1,63 @@
+# pg_master (Puerto 5432): Actuará como tu servidor coordinador.
+
+# pg_worker1 (Puerto 5433): Primer nodo remoto para fragmentos.
+
+# pg_worker2 (Puerto 5434): Segundo nodo remoto para fragmentos.
+
+services:
+  pg_master:
+    image: postgres:15
+    container_name: pg_master
+    restart: always
+    environment:
+      POSTGRES_USER: abel               # Tu usuario estándar
+      POSTGRES_PASSWORD: incentivos     # Tu contraseña estándar
+      POSTGRES_DB: minsa_db # esta es la maintenance database, no la de los shards
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_master_data:/var/lib/postgresql/data
+      - ./scripts/master:/docker-entrypoint-initdb.d
+    networks:
+      - minsa_network
+
+  pg_worker1:
+    image: postgres:15
+    container_name: pg_worker1
+    restart: always
+    environment:
+      POSTGRES_USER: abel               # Mismo usuario para evitar conflictos de red
+      POSTGRES_PASSWORD: incentivos
+      POSTGRES_DB: minsa_worker1
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_worker1_data:/var/lib/postgresql/data
+      - ./scripts/workers:/docker-entrypoint-initdb.d
+    networks:
+      - minsa_network
+
+  pg_worker2:
+    image: postgres:15
+    container_name: pg_worker2
+    restart: always
+    environment:
+      POSTGRES_USER: abel               # Mismo usuario para evitar conflictos de red
+      POSTGRES_PASSWORD: incentivos
+      POSTGRES_DB: minsa_worker2
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg_worker2_data:/var/lib/postgresql/data
+      - ./scripts/workers:/docker-entrypoint-initdb.d
+    networks:
+      - minsa_network
+
+volumes:
+  pg_master_data:
+  pg_worker1_data:
+  pg_worker2_data:
+
+networks:
+  minsa_network:
+    driver: bridge
