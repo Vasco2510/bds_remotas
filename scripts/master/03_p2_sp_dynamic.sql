@@ -60,10 +60,8 @@ END;
 $$;
 
 
--- =========================================================================
--- EVIDENCIA DE PRUEBAS (Insertar "k" registros distintos)
--- =========================================================================
 
+-- EVIDENCIA DE PRUEBAS 
 -- Caso A: Diagnóstico totalmente nuevo (Debe disparar el CREATE TABLE)
 CALL sp_insertar_atencion('11223344', 105, 'Arequipa', 'Dengue', 71.2, 1.68, '120/80', 28, '2026-06-01');
 
