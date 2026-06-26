@@ -91,9 +91,8 @@ SELECT * FROM dblink(
 
 
 
--- =========================================================================
--- 2 CONSULTAS DE EVIDENCIA CON EXPLAIN ANALYZE (Obligatorio para el reporte)
--- =========================================================================
+
+-- 2 CONSULTAS DE EVIDENCIA CON EXPLAIN ANALYZE 
 
 -- CONSULTA DISTRIBUIDA 1:
 -- Consolidar el conteo nacional de diagnósticos barriendo los 3 servidores físicos
