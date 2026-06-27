@@ -223,71 +223,89 @@ Simular el ambiente distribuido **en un solo servidor** usando tablas temporales
 | `am_cardiopatia` | Sitio 2 | `Diagnostico = 'Cardiopatía'` |
 | `am_hipertension` | Sitio 3 | `Diagnostico = 'Hipertensión'` |
 
-**Consultas a implementar (las 4 obligatorias):**
 
-```sql
--- Consulta 1: SELECT * FROM Pacientes ORDER BY FechaNacimiento;
--- Algoritmo distribuido:
---   Paso 1: Obtener fragmentos de cada sitio en tablas temporales
---   CREATE TEMP TABLE temp_pac_a_g ON COMMIT DROP AS SELECT * FROM pac_a_g;
---   CREATE TEMP TABLE temp_pac_h_o ON COMMIT DROP AS SELECT * FROM pac_h_o;
---   CREATE TEMP TABLE temp_pac_p_z ON COMMIT DROP AS SELECT * FROM pac_p_z;
---   Paso 2: UNION ALL + ORDER BY (fusión mezclada)
---   SELECT * FROM temp_pac_a_g UNION ALL ... ORDER BY FechaNacimiento;
---   Incluir EXPLAIN ANALYZE
+#### P5 — Algoritmos distribuidos en tres servidores (Master-Worker)
 
--- Consulta 2: SELECT DISTINCT CiudadOrigen FROM Pacientes;
--- Algoritmo distribuido: proyectar distinct de cada fragmento y luego fusionar
+Paquete autocontenido. Levanta 1 coordinador + 2 workers, distribuye los
+fragmentos de `Pacientes` y `AtencionMedica` entre los tres, y ejecuta las
+4 consultas en ambiente distribuido con `EXPLAIN ANALYZE`.
 
--- Consulta 3: SELECT Diagnostico, AVG(Edad) AS PromEdad FROM AtencionMedica GROUP BY Diagnostico;
--- Algoritmo distribuido: agrupar en cada fragmento, luego consolidar promedios ponderados
+**Arquitectura y distribución de fragmentos:**
 
--- Consulta 4: SELECT * FROM Pacientes NATURAL JOIN AtencionMedica;
--- Algoritmo distribuido: JOIN entre fragmentos locales y remotos por DNI
+| Servidor    | Puerto host | Fragmentos que almacena |
+|-------------|-------------|--------------------------|
+| coordinador | 5432        | AtencionMedica: Diabetes, Hipertensión · Pacientes: P–Z |
+| worker1     | 5433        | AtencionMedica: Obesidad · Pacientes: A–G |
+| worker2     | 5434        | AtencionMedica: Cardiopatía · Pacientes: H–O |
+
+- `AtencionMedica` se fragmenta por `Diagnostico` (LIST).
+- `Pacientes` se fragmenta por `CiudadOrigen` (RANGE, vector `["H","P"]`).
+- El coordinador mantiene las tablas particionadas padre; las particiones
+  remotas son tablas foráneas (`postgres_fdw`) sobre los workers.
+
+**Requisitos:** Docker Desktop en ejecución.
+
+**Estructura:**
+```
+lab13_p5/
+├── docker-compose.yml
+└── sql/
+    ├── p5_worker1.sql      # base + tablas fisicas (worker1)
+    ├── p5_worker2.sql      # base + tablas fisicas (worker2)
+    ├── p5_coordinador.sql  # FDW + particiones distribuidas + datos (>=50k)
+    └── p5_consultas.sql    # 4 consultas + EXPLAIN ANALYZE
 ```
 
-**Requisitos:**
-- Cada consulta debe documentar los pasos intermedios en comentarios
-- Usar `CREATE TEMP TABLE ... ON COMMIT DROP` (se eliminan al finalizar)
-- Incluir `EXPLAIN ANALYZE` con captura gráfica de pgAdmin
-- ⚠️ Si P4 está mal implementado, se anula P4 y P5
+**Ejecución manual (paso a paso):**
+```bash
+# 1) Levantar los 3 servidores
+docker compose up -d
 
-#### P5: Algoritmos Distribuidos en 3 Servidores (6 pts) — `scripts/master/06_p5_algoritmos_distribuidos.sql`
+# 2) Tablas fisicas en los workers  (PowerShell: usar Get-Content | docker exec -i)
+docker exec -i lab13_worker1 psql -U postgres < sql/p5_worker1.sql
+docker exec -i lab13_worker2 psql -U postgres < sql/p5_worker2.sql
 
-Implementar las 4 consultas en la arquitectura real de 3 servidores usando `postgres_fdw`.
+# 3) Coordinador: FDW + particiones distribuidas + carga (>=50k)
+docker exec -i lab13_coordinador psql -U postgres < sql/p5_coordinador.sql
 
-```sql
--- 1. Crear foreign tables en master apuntando a los workers
-CREATE FOREIGN TABLE ft_pac_a_g (...) SERVER worker1_fdw OPTIONS (...);
-CREATE FOREIGN TABLE ft_pac_h_o (...) SERVER worker2_fdw OPTIONS (...);
--- etc.
-
--- 2. Ejecutar las 4 consultas igual que P4 pero contra foreign tables
---    (el optimizador hará push-down de filtros y proyecciones)
-
--- 3. Incluir EXPLAIN ANALYZE que evidencie la integración de servidores
---    (deben aparecer nodos "Foreign Scan" en el plan)
+# 4) Las 4 consultas distribuidas con EXPLAIN ANALYZE
+docker exec -i lab13_coordinador psql -U postgres -d lab13_p5 < sql/p5_consultas.sql
 ```
 
-**Distribución sugerida de fragmentos:**
+> En PowerShell el redireccionamiento `<` no funciona; reemplaza
+> `psql ... < archivo.sql` por `Get-Content archivo.sql | docker exec -i ... psql ...`.
 
-| Fragmento | Ubicación |
-|-----------|-----------|
-| `am_diabetes` | Master (local) |
-| `am_obesidad` | Master (local) |
-| `am_cardiopatia` | Worker 1 |
-| `am_hipertension` | Worker 2 |
-| `pac_a_g` (A-G) | Master (local) |
-| `pac_h_o` (H-O) | Worker 1 |
-| `pac_p_z` (P-Z) | Worker 2 |
+**Cómo leer los planes (lo que evidencia P5):**
+En cada plan, los nodos `Foreign Scan` sobre `worker1`/`worker2` junto con los
+`Seq Scan` locales muestran que la consulta integra los tres servidores. El
+mapeo con el algoritmo distribuido (localización) es directo:
 
-**Requisitos:**
-- 1 coordinador (master) + 2 workers
-- Usar `postgres_fdw` para acceso remoto
-- Fragmentos distribuidos entre los 3 servidores
-- Ejecutar las 4 consultas del P4
-- Mostrar planes de ejecución con nodos `Foreign Scan`
-- Script completamente replicable
+| Nodo del plan | Significado distribuido |
+|---|---|
+| `Foreign Scan` (worker) / `Seq Scan` (local) | proceso local + transferencia del fragmento |
+| `Append` / `Merge Append` | unión `∪` de los fragmentos (localización) |
+| `HashAggregate` / `Hash Join` / `Sort` | combinación final en el coordinador |
+
+Planes esperados: Q1 `Merge Append` (2 foreign + 1 local) → orden global;
+Q2 `Append` → `HashAggregate` (distinct); Q3 `Append` → `HashAggregate` (AVG);
+Q4 `Hash Join` alimentado por dos `Append` (6 fragmentos de 3 servidores).
+
+**Capturas gráficas (pgAdmin):**
+Conéctate desde pgAdmin a `localhost:5432` (usuario `postgres`, contraseña
+`postgres`, base `lab13_p5`) y usa el botón **Explain Analyze** sobre cada
+consulta de `sql/p5_consultas.sql` para obtener el plan gráfico.
+
+**Verificar ubicación física de los datos:**
+```bash
+docker exec -it lab13_worker1 psql -U postgres -d lab13_p5 -c "SELECT count(*) FROM am_obesidad;"
+docker exec -it lab13_worker2 psql -U postgres -d lab13_p5 -c "SELECT count(*) FROM am_cardiopatia;"
+docker exec -it lab13_worker1 psql -U postgres -d lab13_p5 -c "SELECT count(*) FROM pacientes_ag;"
+```
+
+**Reiniciar / limpiar:**
+```bash
+docker compose down -v   # detiene y borra los datos; vuelve a correr para reconstruir
+```
 
 ---
 

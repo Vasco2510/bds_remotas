@@ -1,0 +1,12 @@
+EXPLAIN ANALYZE
+SELECT * FROM Pacientes ORDER BY FechaNacimiento;
+
+EXPLAIN ANALYZE
+SELECT DISTINCT CiudadOrigen FROM Pacientes;
+
+EXPLAIN ANALYZE
+SELECT Diagnostico, AVG(Edad) AS PromEdad
+FROM AtencionMedica GROUP BY Diagnostico;
+
+EXPLAIN ANALYZE
+SELECT * FROM Pacientes NATURAL JOIN AtencionMedica;

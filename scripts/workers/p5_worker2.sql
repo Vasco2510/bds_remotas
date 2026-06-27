@@ -1,0 +1,16 @@
+
+DROP DATABASE IF EXISTS lab13_p5;
+CREATE DATABASE lab13_p5;
+\c lab13_p5
+
+CREATE TABLE am_cardiopatia (
+    DNI CHAR(8), CodMedico INT NOT NULL, Ciudad VARCHAR(50) NOT NULL,
+    Diagnostico VARCHAR(50) NOT NULL, Peso DECIMAL(5,2) NOT NULL, Talla DECIMAL(4,2) NOT NULL,
+    PresionArterial VARCHAR(10) NOT NULL, Edad INT NOT NULL CHECK(Edad>=0), FechaAtencion DATE NOT NULL
+);
+
+CREATE TABLE pacientes_ho (
+    DNI CHAR(8) PRIMARY KEY, Nombre VARCHAR(50) NOT NULL, Apellidos VARCHAR(100) NOT NULL,
+    FechaNacimiento DATE NOT NULL, Sexo CHAR(1) NOT NULL CHECK(Sexo IN ('M','F')),
+    CiudadOrigen VARCHAR(50) NOT NULL
+);
